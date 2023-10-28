@@ -6,7 +6,7 @@
 _loading:      .ascii "Booting on hart % ...\n\0"
 _active_heart: .ascii "Active core : % \n\0"
 _mode_message: .ascii "Now running in % mode\n\0"
-_exception   : .ascii "Exception "%" found\n\0"
+_exception   : .ascii "Exception % found\n\0"
 _stack:
    .skip 4096*4
 
