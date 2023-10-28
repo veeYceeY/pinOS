@@ -3,10 +3,12 @@
 
 .section .data
 
-_loading:      .ascii "Setting up cores...\n\0"
+_loading:      .ascii "Booting on hart % ...\n\0"
 _active_heart: .ascii "Active core : % \n\0"
+_mode_message: .ascii "Now running in % mode\n\0"
+_exception   : .ascii "Exception "%" found\n\0"
 _stack:
-   .skip 8192
+   .skip 4096*4
 
 _lock:
    .skip 256,0
@@ -17,18 +19,40 @@ _lock:
 
 .global _start
 _start:
-   la t0,_stack
-   csrr t1,mhartid
-   addi a0,t1,1
-   la t2,1024
-   mul t2,a0,t2
-   add sp,t0,t2
-   bne t1,x0, _halt
-   li a1,0x33
+   la t0,_exception_handler
+   csrw mepc,t0
+   #Initialise stack for each harts
+   la t0,_stack       #load stack start address
+   csrr t1,mhartid    #Read hart id
+   addi a0,t1,1       
+   la t2,4096         
+   mul t2,a0,t2   
+   add sp,t0,t2       #laod sp with stack address per hart
+   #select hart0 and put make other harts wait
+   bne t1,zero, _halt   
+   #display selected core boot message
+   addi a1,tp,0x30
    la a0,_loading
    call _printline
-   #la a0,_active_heart
-   #call _test
+   csrr a1,mstatus
+   li t0,0x1800
+   and a1,a1,t0
+   addi a1,a1,0x30
+   la a0,_mode_message
+   call _printline
+   #disable paging
+   csrw satp,x0
+   #configure pmp to allow access to all regions
+   li t0,0x7fffffffffffffff
+   csrw pmpcfg0,t0
+   csrw pmpaddr0,t0
+   
+   
+   
+   
+
+
+
 _idle:
    call _sched
    wfi
@@ -56,6 +80,9 @@ _halt:
 _check_privilage:
    push
    csrr t0,mstatus
+   #sll t0,51
+   #srl t0,11
+
    pop
 
 _sched:
