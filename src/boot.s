@@ -220,7 +220,11 @@ _exception_handler:
    csrr t0,mepc
    push t0
    
-   call _dump_csr
+   la a0,_fmt
+   call _printline
+   la a0,_fmt
+   call _printline
+
    pop t0
    li a0,0x0b
    csrr a1,mcause
@@ -250,6 +254,8 @@ _no_secall:
 _no_uecall:
 
 _exc_exit:
+
+   call _dump_csr
    csrw mepc,t0
    pop ra
    pop gp
