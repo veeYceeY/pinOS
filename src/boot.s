@@ -2,10 +2,16 @@
 .option norvc
 
 .section .data
-
+_mepc:         .ascii "MEPC\n\0"
+_mcause:       .ascii "MCAUSE\n\0"
+_mtval:        .ascii "MTVAL\n\0"
+_mtvec:        .ascii "MTVEC\n\0"
+_mstatus:      .ascii "MSTATUS\n\0"
+_fmt:          .ascii "---------------------------\n\0"
 _loading:      .ascii "Booting on hart % ...\n\0"
 _active_heart: .ascii "Active core : % \n\0"
 _mode_message: .ascii "Now running in % mode\n\0"
+_ecall_message: .ascii "ecall from % mode\n\0"
 _exception   : .ascii "Exception % found\n\0"
 _stack:
    .skip 4096*4
@@ -18,9 +24,33 @@ _lock:
 .section .text.init
 
 .global _start
+
+.macro push rname
+   addi sp,sp,-8
+   sd \rname,0(sp)
+.endm
+.macro pop rname
+   ld \rname,0(sp)
+   addi sp,sp,8
+.endm
+.macro wruart rname
+    li t3,0x10000000
+    sb \rname,0(t3) 
+.endm
+
+.macro nl
+    push a0
+    li a0,0x0a
+    wruart a0
+    pop a0
+.endm
+
+
+
 _start:
    la t0,_exception_handler
-   csrw mepc,t0
+   csrw mtvec,t0
+   # csrw mepc,t0
    #Initialise stack for each harts
    la t0,_stack       #load stack start address
    csrr t1,mhartid    #Read hart id
@@ -34,23 +64,39 @@ _start:
    addi a1,tp,0x30
    la a0,_loading
    call _printline
-   csrr a1,mstatus
-   li t0,0x1800
-   and a1,a1,t0
-   addi a1,a1,0x30
-   la a0,_mode_message
-   call _printline
    #disable paging
    csrw satp,x0
-   #configure pmp to allow access to all regions
-   li t0,0x7fffffffffffffff
-   csrw pmpcfg0,t0
-   csrw pmpaddr0,t0
-   ecall
-   
-   
-   
 
+   #enable interrupt
+
+
+   #configure pmp to allow access to all regions
+   li t0,0x0f
+   csrw pmpcfg0,t0
+   li t0,-1
+   csrw pmpaddr0,t0
+   addi t1,t0,0x00
+
+   li t0,0x0
+   csrw medeleg,t0
+   # li t0,0x1800
+   # csrw mstatus,t0
+   # csrw sedeleg,t0
+   # ecall
+ 
+   li a0,0x0123456789abcdef
+   call _print_value
+   call _dump_csr
+   ecall
+   call _to_sm
+_sm_start:
+   li a0,0x001
+   ecall
+   ecall
+   ecall
+
+_cend:
+   j _cend
 
 
 _idle:
@@ -60,22 +106,49 @@ _idle:
 
 _halt:
    call _sched
-    wfi
+   # wfi
     j _halt
 
 
-.macro push rname
-   addi sp,sp,-8
-   sd \rname,0(sp)
-.endm
-.macro pop rname
-   ld \rname,0(sp)
-   addi sp,sp,8
-.endm
-.macro wruart
-    li t3,0x10000000
-    sb t2,0(t3) 
-.endm
+_to_sm:
+   push ra
+   li t0,0x00800
+   csrs mstatus,t0
+   # csrc mstatus,t0
+   # csrw mstatus,t0
+   la t0,_sm_start
+   csrw mepc,t0
+   pop ra 
+   mret
+
+_dump_csr:
+   push ra
+   la a0,_fmt
+   call _printline
+   la a0,_mepc
+   call _printline
+   csrr a0,mepc
+   call _print_value
+   la a0,_mcause
+   call _printline
+   csrr a0,mcause
+   call _print_value
+   la a0,_mtval
+   call _printline
+   csrr a0,mtval
+   call _print_value
+   la a0,_mtvec
+   call _printline
+   csrr a0,mtvec
+   call _print_value
+   la a0,_mstatus
+   call _printline
+   csrr a0,mstatus
+   call _print_value
+   la a0,_fmt
+   call _printline
+   pop ra
+   ret
 
 _check_privilage:
    push ra
@@ -111,9 +184,8 @@ _sched_continue:
    sd t0,0(t1)
    pop ra
    ret
-
-
 _exception_handler:
+   
    push ra
    push gp
    push tp
@@ -145,10 +217,40 @@ _exception_handler:
    push t5
    push t6
 
+   csrr t0,mepc
+   push t0
    
+   call _dump_csr
+   pop t0
+   li a0,0x0b
+   csrr a1,mcause
+   bne a0,a1,_no_mecall
+   addi t0,t0,0x04
+   li a1,0x4d
+   la a0,_ecall_message
+   call _printline
+   j _exc_exit
+_no_mecall:
+   li a0,0x08
+   bne a0,a1,_no_secall
+   addi t0,t0,0x04
+   li a1,0x53
+   la a0,_ecall_message
+   call _printline
+   j _exc_exit
+_no_secall:
+   li a0,0x09
+   bne a0,a1,_no_uecall
+   addi t0,t0,0x04
+   li a1,0x55
+   la a0,_ecall_message
+   call _printline
+   j _exc_exit
 
+_no_uecall:
 
-
+_exc_exit:
+   csrw mepc,t0
    pop ra
    pop gp
    pop tp
@@ -197,6 +299,31 @@ _test_start:
    bne t1,x0,_test_start
 
 _test_end:
+   pop ra
+   ret
+
+_print_value:
+   push ra
+   li t3,0x10000000
+   li t1,0x0F
+   li s0,0x0a
+   addi s4,x0,0x04
+_val_nb:
+   mul s1,t1,s4
+   srl s5,a0,s1
+   andi t2,s5,0x0F
+   bge t2,s0,_hxd
+   addi t2,t2,0x30
+   j _con
+_hxd:
+   addi t2,t2,0x37
+_con:
+   sb t2,0(t3)
+   addi t1,t1,-1
+   # addi t2,t1,0x30
+   # sb t2,0(t3)
+   bge t1,x0,_val_nb
+   nl
    pop ra
    ret
 
