@@ -88,6 +88,7 @@ _start:
    call _print_value
    call _dump_csr
    ecall
+   la a0,_sm_start
    call _to_sm
 _sm_start:
    li a0,0x001
@@ -95,8 +96,8 @@ _sm_start:
    ecall
    ecall
 
-_cend:
-   j _cend
+_end:
+   j _end
 
 
 _idle:
@@ -112,12 +113,17 @@ _halt:
 
 _to_sm:
    push ra
-   li t0,0x00800
-   csrs mstatus,t0
+   csrr t0,mstatus
+   li t1,0x0800
+   or t0,t0,t1
+   push a0
+   add a0,x0,t0
+   call _print_value
+   # csrs mstatus,t0
    # csrc mstatus,t0
-   # csrw mstatus,t0
-   la t0,_sm_start
-   csrw mepc,t0
+   csrw mstatus,t0
+   pop a0
+   csrw mepc,a0
    pop ra 
    mret
 
@@ -150,13 +156,6 @@ _dump_csr:
    pop ra
    ret
 
-_check_privilage:
-   push ra
-   csrr t0,mstatus
-   #sll t0,51
-   #srl t0,11
-
-   pop ra
 
 _sched:
    push ra
@@ -235,7 +234,7 @@ _exception_handler:
    call _printline
    j _exc_exit
 _no_mecall:
-   li a0,0x08
+   li a0,0x09
    bne a0,a1,_no_secall
    addi t0,t0,0x04
    li a1,0x53
@@ -243,7 +242,7 @@ _no_mecall:
    call _printline
    j _exc_exit
 _no_secall:
-   li a0,0x09
+   li a0,0x08
    bne a0,a1,_no_uecall
    addi t0,t0,0x04
    li a1,0x55
